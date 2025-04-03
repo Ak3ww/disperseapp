@@ -5,6 +5,7 @@ import { ethers } from 'ethers';
 
 const CONTRACT_ADDRESS = '0x59b990c626853DC951A38EFC1dF50abb4d48Ca75';
 const AVG_TOKEN_ADDRESS = '0xa41F142b6eb2b164f8164CAE0716892Ce02f311f';
+const BSC_MAINNET_CHAIN_ID = '0x38'; // BNB Chain Mainnet
 
 const CONTRACT_ABI = [
   "function disperseBNB(address[] calldata recipients, uint256[] calldata amounts) external payable",
@@ -13,7 +14,8 @@ const CONTRACT_ABI = [
 
 const AVG_ABI = [
   "function approve(address spender, uint256 amount) public returns (bool)",
-  "function allowance(address owner, address spender) public view returns (uint256)"
+  "function allowance(address owner, address spender) external view returns (uint256)",
+  "function decimals() view returns (uint8)"
 ];
 
 export default function Home() {
@@ -21,48 +23,57 @@ export default function Home() {
   const [mode, setMode] = useState('');
   const [inputText, setInputText] = useState('');
   const [approved, setApproved] = useState(false);
-  const [preview, setPreview] = useState({ count: 0, total: '0.0' });
-  const [txHash, setTxHash] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [txHash, setTxHash] = useState(null);
+  const [previewTotal, setPreviewTotal] = useState('0');
 
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
-  const [avgToken, setAvgToken] = useState(null);
 
-  const BNB_CHAIN_ID = '0x38';
+  const connectWallet = async () => {
+    if (!window.ethereum) return alert("Please install MetaMask");
 
-  const ensureBNBChain = async () => {
-    try {
-      const currentChain = await window.ethereum.request({ method: 'eth_chainId' });
-      if (currentChain !== BNB_CHAIN_ID) {
+    const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
+    await web3Provider.send("eth_requestAccounts", []);
+    const signer = web3Provider.getSigner();
+    const address = await signer.getAddress();
+
+    setWalletAddress(address);
+    setProvider(web3Provider);
+    setSigner(signer);
+    setContract(new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer));
+
+    const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+    if (chainId !== BSC_MAINNET_CHAIN_ID) {
+      try {
         await window.ethereum.request({
           method: 'wallet_switchEthereumChain',
-          params: [{ chainId: BNB_CHAIN_ID }]
+          params: [{ chainId: BSC_MAINNET_CHAIN_ID }],
         });
-      }
-    } catch (switchError) {
-      if (switchError.code === 4902) {
-        try {
+      } catch (error) {
+        if (error.code === 4902) {
           await window.ethereum.request({
             method: 'wallet_addEthereumChain',
             params: [{
-              chainId: BNB_CHAIN_ID,
-              chainName: 'BNB Smart Chain',
+              chainId: BSC_MAINNET_CHAIN_ID,
+              chainName: 'BNB Chain',
               nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
               rpcUrls: ['https://bsc-dataseed.binance.org/'],
               blockExplorerUrls: ['https://bscscan.com']
             }]
           });
-        } catch (addError) {
-          alert("Failed to switch to BNB Chain.");
-          throw addError;
+        } else {
+          alert("Please switch to BNB Chain manually in MetaMask.");
         }
-      } else {
-        alert("Failed to switch to BNB Chain.");
-        throw switchError;
       }
     }
+  };
+
+  const disconnectWallet = () => {
+    setWalletAddress('');
+    setSigner(null);
+    setProvider(null);
+    setContract(null);
   };
 
   const parseInput = () => {
@@ -77,103 +88,51 @@ export default function Home() {
         amounts.push(ethers.utils.parseUnits(amount.trim(), 18));
       }
     }
-    return { recipients, amounts };
-  };
 
-  const updatePreview = () => {
-    const lines = inputText.trim().split('\n');
-    let count = 0;
-    let total = ethers.BigNumber.from(0);
-    try {
-      for (const line of lines) {
-        const [address, amount] = line.split(/[, ]+/);
-        if (ethers.utils.isAddress(address) && !isNaN(parseFloat(amount))) {
-          count++;
-          total = total.add(ethers.utils.parseUnits(amount.trim(), 18));
-        }
-      }
-      setPreview({
-        count,
-        total: ethers.utils.formatUnits(total, 18)
-      });
-    } catch {
-      setPreview({ count: 0, total: '0.0' });
-    }
-  };
-
-  const connectWallet = async () => {
-    if (!window.ethereum) return alert("Install MetaMask");
-
-    const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
-    await web3Provider.send("eth_requestAccounts", []);
-    const signer = web3Provider.getSigner();
-    const address = await signer.getAddress();
-
-    setWalletAddress(address);
-    setProvider(web3Provider);
-    setSigner(signer);
-
-    const disperseContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-    const avg = new ethers.Contract(AVG_TOKEN_ADDRESS, AVG_ABI, signer);
-    setContract(disperseContract);
-    setAvgToken(avg);
-  };
-
-  const disconnectWallet = () => {
-    setWalletAddress('');
-    setMode('');
-    setInputText('');
-    setApproved(false);
-    setTxHash('');
-    setSuccess(false);
-    setPreview({ count: 0, total: '0.0' });
+    const total = amounts.reduce((sum, val) => sum.add(val), ethers.BigNumber.from(0));
+    setPreviewTotal(ethers.utils.formatUnits(total, 18));
+    return { recipients, amounts, total };
   };
 
   const checkApproval = async () => {
-    if (!avgToken || !walletAddress) return;
-    const allowance = await avgToken.allowance(walletAddress, CONTRACT_ADDRESS);
-    setApproved(allowance.gt(ethers.utils.parseUnits('1', 18)));
+    if (!walletAddress || !signer) return;
+    const avg = new ethers.Contract(AVG_TOKEN_ADDRESS, AVG_ABI, signer);
+    const allowance = await avg.allowance(walletAddress, CONTRACT_ADDRESS);
+    setApproved(allowance.gt(0));
   };
 
   const approveAVG = async () => {
-    await ensureBNBChain();
-    const tx = await avgToken.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
+    const { total } = parseInput();
+    const avg = new ethers.Contract(AVG_TOKEN_ADDRESS, AVG_ABI, signer);
+    const tx = await avg.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
     setApproved(true);
   };
 
   const revokeAVG = async () => {
-    await ensureBNBChain();
-    const tx = await avgToken.approve(CONTRACT_ADDRESS, 0);
+    const avg = new ethers.Contract(AVG_TOKEN_ADDRESS, AVG_ABI, signer);
+    const tx = await avg.approve(CONTRACT_ADDRESS, 0);
     await tx.wait();
     setApproved(false);
   };
 
   const sendDisperse = async () => {
-    await ensureBNBChain();
-
-    const { recipients, amounts } = parseInput();
-    if (!recipients.length) return alert("No valid recipients found.");
-
-    setSuccess(false);
-    setTxHash('');
+    const { recipients, amounts, total } = parseInput();
+    if (!recipients.length) return alert("Invalid input");
 
     let tx;
     if (mode === 'bnb') {
-      const total = amounts.reduce((sum, a) => sum.add(a), ethers.BigNumber.from(0));
       tx = await contract.disperseBNB(recipients, amounts, { value: total });
     } else {
       tx = await contract.disperseToken(AVG_TOKEN_ADDRESS, recipients, amounts);
     }
-
-    setTxHash(tx.hash);
     await tx.wait();
-    setSuccess(true);
+    setTxHash(tx.hash);
   };
 
   useEffect(() => {
     if (mode === 'avg') checkApproval();
-  }, [mode, walletAddress, avgToken]);
+  }, [walletAddress, mode, inputText]);
 
   return (
     <div className={styles.fullPage}>
@@ -184,20 +143,21 @@ export default function Home() {
           <Button onClick={connectWallet}>Connect Wallet</Button>
         ) : (
           <>
-            <p className={styles.connected}>
-              Connected: {walletAddress}
+            <div className={styles.connected}>
+              Connected: {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
               <span className={styles.disconnect} onClick={disconnectWallet}>Disconnect</span>
-            </p>
+            </div>
 
             <select className={styles.select} onChange={(e) => {
               setMode(e.target.value);
               setApproved(false);
-              setSuccess(false);
-              setTxHash('');
+              setTxHash(null);
+              setInputText('');
+              setPreviewTotal('0');
             }}>
               <option value="">Select Token</option>
               <option value="bnb">BNB</option>
-              <option value="avg">$AVG</option>
+              <option value="avg">AVG</option>
             </select>
 
             {mode && (
@@ -207,36 +167,34 @@ export default function Home() {
                   value={inputText}
                   onChange={(e) => {
                     setInputText(e.target.value);
-                    updatePreview();
+                    parseInput();
                   }}
                   placeholder="0xAddress, 1.23"
                   rows={8}
                 />
 
-                <div className={styles.preview}>
-                  👥 Recipients: <strong>{preview.count}</strong> | 💰 Total: <strong>{preview.total} {mode === 'bnb' ? 'BNB' : 'AVG'}</strong>
-                </div>
+                {previewTotal !== '0' && (
+                  <div className={styles.preview}>
+                    Estimated Total: {previewTotal} {mode === 'bnb' ? 'BNB' : 'AVG'}
+                  </div>
+                )}
 
                 {mode === 'avg' && !approved && (
-                  <Button onClick={approveAVG}>Approve $AVG</Button>
+                  <Button onClick={approveAVG}>Approve AVG</Button>
                 )}
 
                 {mode === 'avg' && approved && (
-                  <Button onClick={revokeAVG}>Revoke Approval</Button>
+                  <Button onClick={revokeAVG}>Revoke AVG</Button>
                 )}
 
                 {(mode === 'bnb' || approved) && (
-                  <>
-                    <Button onClick={sendDisperse}>Send</Button>
-                    {success && txHash && (
-                      <p className={styles.txinfo}>
-                        ✅ Transaction sent!{' '}
-                        <a href={`https://bscscan.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer">
-                          View on BscScan
-                        </a>
-                      </p>
-                    )}
-                  </>
+                  <Button onClick={sendDisperse}>Send</Button>
+                )}
+
+                {txHash && (
+                  <div className={styles.txinfo}>
+                    ✅ Success: <a href={`https://bscscan.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer">{txHash.slice(0, 10)}...</a>
+                  </div>
                 )}
               </>
             )}
