@@ -28,14 +28,18 @@ export default function Home() {
   const [approved, setApproved] = useState(false);
   const [txHash, setTxHash] = useState(null);
   const [previewTotal, setPreviewTotal] = useState('0');
+  const [recipientCount, setRecipientCount] = useState(0);
 
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
 
+  const [bnbBalance, setBnbBalance] = useState('');
+  const [avgBalance, setAvgBalance] = useState('');
   const [customTokenAddress, setCustomTokenAddress] = useState('');
   const [customSymbol, setCustomSymbol] = useState('');
   const [customBalance, setCustomBalance] = useState('');
+  const [loadingCustom, setLoadingCustom] = useState(false);
 
   const connectWallet = async () => {
     if (!window.ethereum) return alert("Please install MetaMask");
@@ -61,6 +65,14 @@ export default function Home() {
         alert("Please switch to BNB Chain in MetaMask.");
       }
     }
+
+    const bnbBal = await web3Provider.getBalance(address);
+    setBnbBalance(ethers.utils.formatEther(bnbBal));
+
+    const avg = new ethers.Contract(AVG_TOKEN_ADDRESS, TOKEN_ABI, signer);
+    const bal = await avg.balanceOf(address);
+    const dec = await avg.decimals();
+    setAvgBalance(ethers.utils.formatUnits(bal, dec));
   };
 
   const disconnectWallet = () => {
@@ -85,6 +97,7 @@ export default function Home() {
     }
 
     const total = amounts.reduce((sum, val) => sum.add(val), ethers.BigNumber.from(0));
+    setRecipientCount(recipients.length);
     setPreviewTotal(ethers.utils.formatUnits(total, 18));
     return { recipients, amounts, total };
   };
@@ -97,7 +110,6 @@ export default function Home() {
   };
 
   const approveToken = async (tokenAddress) => {
-    const { total } = parseInput();
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
@@ -116,10 +128,10 @@ export default function Home() {
     if (!recipients.length) return alert("Invalid input");
 
     let tx;
+    const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
     if (mode === 'bnb') {
       tx = await contract.disperseBNB(recipients, amounts, { value: total });
     } else {
-      const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
       tx = await contract.disperseToken(tokenAddress, recipients, amounts);
     }
 
@@ -129,6 +141,7 @@ export default function Home() {
 
   const loadCustomToken = async () => {
     try {
+      setLoadingCustom(true);
       const token = new ethers.Contract(customTokenAddress, TOKEN_ABI, signer);
       const symbol = await token.symbol();
       const balance = await token.balanceOf(walletAddress);
@@ -139,6 +152,8 @@ export default function Home() {
       checkApproval(customTokenAddress);
     } catch (err) {
       alert("Failed to load token");
+    } finally {
+      setLoadingCustom(false);
     }
   };
 
@@ -178,6 +193,7 @@ export default function Home() {
               setTxHash(null);
               setInputText('');
               setPreviewTotal('0');
+              setRecipientCount(0);
               setCustomSymbol('');
               setCustomBalance('');
             }}>
@@ -187,16 +203,25 @@ export default function Home() {
               <option value="custom">Custom Token</option>
             </select>
 
+            {mode === 'bnb' && bnbBalance && (
+              <div className={styles.preview}>BNB Balance: {bnbBalance}</div>
+            )}
+            {mode === 'avg' && avgBalance && (
+              <div className={styles.preview}>AVG Balance: {avgBalance}</div>
+            )}
+
             {mode === 'custom' && (
               <>
                 <input
                   className={styles.select}
                   value={customTokenAddress}
                   onChange={(e) => setCustomTokenAddress(e.target.value)}
-                  placeholder="Paste Token Contract"
+                  placeholder="Paste Token Contract Address"
+                  title="Paste any BSC token contract here to use it"
                 />
                 <Button onClick={loadCustomToken}>Load Token</Button>
-                {customSymbol && (
+                {loadingCustom && <div className={styles.preview}>Loading token...</div>}
+                {!loadingCustom && customSymbol && (
                   <div className={styles.preview}>
                     {customSymbol} Balance: {customBalance}
                   </div>
@@ -214,22 +239,30 @@ export default function Home() {
                     parseInput();
                   }}
                   placeholder="0xAddress, 1.23"
+                  title="Paste each recipient and amount on a new line"
                 />
 
-                {previewTotal !== '0' && (
+                {recipientCount > 0 && (
                   <div className={styles.preview}>
+                    Recipients: {recipientCount}<br />
                     Total: {previewTotal}
                   </div>
                 )}
 
                 {(mode === 'avg' || mode === 'custom') && !approved && (
-                  <Button onClick={() => approveToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
+                  <Button
+                    title="Approve this token so it can be distributed"
+                    onClick={() => approveToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}
+                  >
                     Approve Token
                   </Button>
                 )}
 
                 {(mode === 'avg' || mode === 'custom') && approved && (
-                  <Button onClick={() => revokeToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
+                  <Button
+                    title="Remove approval so this token cannot be sent anymore"
+                    onClick={() => revokeToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}
+                  >
                     Revoke Approval
                   </Button>
                 )}
