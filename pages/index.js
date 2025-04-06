@@ -106,21 +106,22 @@ export default function Home() {
     if (!walletAddress || !signer) return;
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const allowance = await token.allowance(walletAddress, CONTRACT_ADDRESS);
-    setApproved(allowance.gt(0));
+    const { total } = parseInput();
+    setApproved(allowance.gte(total));
   };
 
   const approveToken = async (tokenAddress) => {
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
-    await checkApproval(tokenAddress); // Recheck after approval
+    await checkApproval(tokenAddress);
   };
 
   const revokeToken = async (tokenAddress) => {
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, 0);
     await tx.wait();
-    await checkApproval(tokenAddress); // Recheck after revoke
+    await checkApproval(tokenAddress);
   };
 
   const sendDisperse = async () => {
@@ -159,8 +160,14 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (mode === 'avg') checkApproval(AVG_TOKEN_ADDRESS);
-  }, [walletAddress, mode, inputText]);
+    if (!walletAddress || !signer) return;
+
+    if (mode === 'avg') {
+      checkApproval(AVG_TOKEN_ADDRESS);
+    } else if (mode === 'custom' && customTokenAddress) {
+      checkApproval(customTokenAddress);
+    }
+  }, [walletAddress, signer, mode, inputText, customTokenAddress]);
 
   return (
     <div className={styles.fullPage}>
@@ -218,7 +225,6 @@ export default function Home() {
                   value={customTokenAddress}
                   onChange={(e) => setCustomTokenAddress(e.target.value)}
                   placeholder="Paste Token Contract Address"
-                  title="Paste any BSC token contract here to use it"
                 />
                 <Button onClick={loadCustomToken}>Load Token</Button>
                 {loadingCustom && <div className={styles.preview}>Loading token...</div>}
@@ -240,7 +246,6 @@ export default function Home() {
                     parseInput();
                   }}
                   placeholder="0xAddress, 1.23"
-                  title="Paste each recipient and amount on a new line"
                 />
 
                 {recipientCount > 0 && (
@@ -251,19 +256,13 @@ export default function Home() {
                 )}
 
                 {(mode === 'avg' || mode === 'custom') && !approved && (
-                  <Button
-                    title="Approve this token so it can be distributed"
-                    onClick={() => approveToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}
-                  >
+                  <Button onClick={() => approveToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
                     Approve Token
                   </Button>
                 )}
 
                 {(mode === 'avg' || mode === 'custom') && approved && (
-                  <Button
-                    title="Remove approval so this token cannot be sent anymore"
-                    onClick={() => revokeToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}
-                  >
+                  <Button onClick={() => revokeToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
                     Revoke Approval
                   </Button>
                 )}
