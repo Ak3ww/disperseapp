@@ -76,7 +76,7 @@ export default function Home() {
     const amounts = [];
 
     for (const line of lines) {
-      const [address, amount] = line.split(/[, ]+/);
+      const [address, amount] = line.split(/[, =]+/);
       if (ethers.utils.isAddress(address) && !isNaN(parseFloat(amount))) {
         recipients.push(address);
         amounts.push(ethers.utils.parseUnits(amount.trim(), 18));
@@ -229,12 +229,24 @@ export default function Home() {
 
             {mode && (
               <>
-                <textarea
-                  className={styles.textarea}
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  placeholder="0xAddress, 1.23"
-                />
+                <div className={styles.tooltipWrapper}>
+                  <label className={styles.tooltipLabel}>
+                    recipients and amounts
+                    <span className={styles.tooltip}>
+                      Enter one address and amount in BNB or token per line. Supports comma, space, or equals sign.
+                      <br /><br />
+                      <code>0xabc..., 1.23</code><br />
+                      <code>0xabc... 1.23</code><br />
+                      <code>0xabc... = 1.23</code>
+                    </span>
+                  </label>
+                  <textarea
+                    className={styles.textarea}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    placeholder={`0xabc..., 1.23\n0xabc... 1.23\n0xabc... = 1.23`}
+                  />
+                </div>
 
                 {previewTotal !== '0' && (
                   <div className={styles.preview}>
