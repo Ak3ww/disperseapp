@@ -35,8 +35,6 @@ export default function Home() {
   const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
 
-  const [bnbBalance, setBnbBalance] = useState('');
-  const [avgBalance, setAvgBalance] = useState('');
   const [customTokenAddress, setCustomTokenAddress] = useState('');
   const [customSymbol, setCustomSymbol] = useState('');
   const [customBalance, setCustomBalance] = useState('');
@@ -66,14 +64,6 @@ export default function Home() {
         alert("Please switch to BNB Chain in MetaMask.");
       }
     }
-
-    const bnbBal = await web3Provider.getBalance(address);
-    setBnbBalance(ethers.utils.formatEther(bnbBal));
-
-    const avg = new ethers.Contract(AVG_TOKEN_ADDRESS, TOKEN_ABI, signer);
-    const bal = await avg.balanceOf(address);
-    const dec = await avg.decimals();
-    setAvgBalance(ethers.utils.formatUnits(bal, dec));
   };
 
   const disconnectWallet = () => {
@@ -119,7 +109,7 @@ export default function Home() {
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
-    await checkApproval(tokenAddress, parsedTotal);
+    await checkApproval(tokenAddress, parsedTotal); // ✅ FIX: Check after approval
   };
 
   const revokeToken = async (tokenAddress) => {
@@ -163,7 +153,6 @@ export default function Home() {
     }
   };
 
-  // 🔁 Re-check approval AFTER parsedTotal changes
   useEffect(() => {
     if (!walletAddress || !signer || parsedTotal.isZero()) return;
 
@@ -181,6 +170,7 @@ export default function Home() {
       </Head>
 
       <div className={styles.container}>
+        <img src="https://www.avocadodao.io/images/avocado-logo.svg" alt="logo" style={{ maxWidth: 200, display: 'block', margin: '0 auto 1rem' }} />
         <h1 className={styles.title}>Avocado Disperser</h1>
 
         {!walletAddress ? (
