@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ethers } from 'ethers';
 import Head from 'next/head';
+import { ethers } from 'ethers';
 import Button from '../components/ui/button';
 import styles from '../styles/DisperseUI.module.css';
 
@@ -15,10 +15,10 @@ const CONTRACT_ABI = [
 
 const TOKEN_ABI = [
   "function approve(address spender, uint256 amount) public returns (bool)",
-  "function allowance(address owner, address spender) external view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
   "function decimals() view returns (uint8)",
   "function symbol() view returns (string)",
-  "function balanceOf(address account) external view returns (uint256)"
+  "function balanceOf(address account) view returns (uint256)"
 ];
 
 export default function Home() {
@@ -52,8 +52,8 @@ export default function Home() {
           method: 'wallet_switchEthereumChain',
           params: [{ chainId: BSC_CHAIN_ID }]
         });
-      } catch (switchError) {
-        return alert('Please switch to BNB Chain manually in MetaMask.');
+      } catch {
+        return alert('Please switch to BNB Chain manually.');
       }
     }
 
@@ -95,42 +95,42 @@ export default function Home() {
     return { recipients, amounts, total };
   };
 
-  const checkApproval = async () => {
-    if (!walletAddress || !signer || parsedTotal.isZero()) return;
+  const getTokenAddress = () => mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
 
-    const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
-    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
-    const allowance = await token.allowance(walletAddress, CONTRACT_ADDRESS);
-    setApproved(allowance.gte(parsedTotal));
+  const checkApproval = async () => {
+    if (!walletAddress || !signer || parsedTotal.isZero() || !getTokenAddress()) return;
+
+    try {
+      const token = new ethers.Contract(getTokenAddress(), TOKEN_ABI, signer);
+      const allowance = await token.allowance(walletAddress, CONTRACT_ADDRESS);
+      setApproved(allowance.gte(parsedTotal));
+    } catch {
+      setApproved(false);
+    }
   };
 
   const approve = async () => {
-    const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
-    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
+    const token = new ethers.Contract(getTokenAddress(), TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
-    await checkApproval(); // re-check after approve
+    await checkApproval(); // recheck
   };
 
   const revoke = async () => {
-    const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
-    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
+    const token = new ethers.Contract(getTokenAddress(), TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, 0);
     await tx.wait();
-    await checkApproval(); // re-check after revoke
+    await checkApproval(); // recheck
   };
 
   const sendDisperse = async () => {
     const { recipients, amounts, total } = parseInput();
-    const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
-
     let tx;
     if (mode === 'bnb') {
       tx = await contract.disperseBNB(recipients, amounts, { value: total });
     } else {
-      tx = await contract.disperseToken(tokenAddress, recipients, amounts);
+      tx = await contract.disperseToken(getTokenAddress(), recipients, amounts);
     }
-
     await tx.wait();
     setTxHash(tx.hash);
   };
@@ -139,20 +139,21 @@ export default function Home() {
     try {
       setLoadingToken(true);
       const token = new ethers.Contract(customTokenAddress, TOKEN_ABI, signer);
-      const userBalance = await token.balanceOf(walletAddress);
-      const tokenSymbol = await token.symbol();
-      setSymbol(tokenSymbol);
-      setTokenBalance(ethers.utils.formatUnits(userBalance, 18));
-    } catch (err) {
-      alert('Error loading token. Please verify address.');
+      const bal = await token.balanceOf(walletAddress);
+      const sym = await token.symbol();
+      setTokenBalance(ethers.utils.formatUnits(bal, 18));
+      setSymbol(sym);
+      await checkApproval();
+    } catch {
+      alert('Failed to load token.');
     } finally {
       setLoadingToken(false);
     }
   };
 
   useEffect(() => {
-    if (mode === 'avg' || mode === 'custom') checkApproval();
-  }, [inputText, customTokenAddress, parsedTotal]);
+    if ((mode === 'avg' || mode === 'custom') && signer) checkApproval();
+  }, [inputText, parsedTotal, mode, customTokenAddress]);
 
   return (
     <div className={styles.fullPage}>
@@ -162,7 +163,11 @@ export default function Home() {
       </Head>
 
       <div className={styles.container}>
-        <img src="https://www.avocadodao.io/images/avocado-logo.svg" alt="Avocado DAO" style={{ maxWidth: '200px', display: 'block', margin: '0 auto 1rem' }} />
+        <img
+          src="https://www.avocadodao.io/images/avocado-logo.svg"
+          alt="Avocado"
+          style={{ width: '160px', display: 'block', margin: '0 auto 1rem' }}
+        />
         <h1 className={styles.title}>Avocado Disperser</h1>
 
         {!walletAddress ? (
@@ -176,25 +181,31 @@ export default function Home() {
 
             <select className={styles.select} value={mode} onChange={(e) => {
               setMode(e.target.value);
+              setSymbol('');
+              setTokenBalance('');
               setInputText('');
+              setTxHash(null);
               setParsedTotal(ethers.BigNumber.from(0));
               setRecipientCount(0);
               setApproved(false);
-              setTxHash(null);
-              setTokenBalance('');
-              setSymbol('');
             }}>
               <option value="">Select Token</option>
-              <option value="bnb">BNB (Balance: {bnbBalance})</option>
+              <option value="bnb">BNB</option>
               <option value="avg">AVG</option>
-              <option value="custom">Custom Token</option>
+              <option value="custom">Custom</option>
             </select>
+
+            {(mode === 'bnb' || mode === 'avg') && (
+              <div className={styles.preview}>
+                Balance: {mode === 'bnb' ? bnbBalance : tokenBalance} {mode.toUpperCase()}
+              </div>
+            )}
 
             {mode === 'custom' && (
               <>
                 <input
                   className={styles.select}
-                  placeholder="Paste custom token address"
+                  placeholder="Paste token address"
                   value={customTokenAddress}
                   onChange={(e) => setCustomTokenAddress(e.target.value)}
                 />
@@ -202,7 +213,8 @@ export default function Home() {
                 {loadingToken && <div className={styles.preview}>🔄 Loading...</div>}
                 {symbol && (
                   <div className={styles.preview}>
-                    {symbol} Balance: {tokenBalance}
+                    Token: {symbol}<br />
+                    Balance: {tokenBalance}
                   </div>
                 )}
               </>
@@ -219,6 +231,7 @@ export default function Home() {
                     parseInput();
                   }}
                 />
+
                 {recipientCount > 0 && (
                   <div className={styles.preview}>
                     Recipients: {recipientCount}<br />
@@ -229,12 +242,14 @@ export default function Home() {
                 {(mode === 'avg' || mode === 'custom') && !approved && (
                   <Button onClick={approve}>Approve</Button>
                 )}
+
                 {(mode === 'avg' || mode === 'custom') && approved && (
                   <>
                     <Button onClick={revoke}>Revoke</Button>
                     <Button onClick={sendDisperse}>Send</Button>
                   </>
                 )}
+
                 {mode === 'bnb' && (
                   <Button onClick={sendDisperse}>Send</Button>
                 )}
