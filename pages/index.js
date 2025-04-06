@@ -26,6 +26,7 @@ export default function Home() {
   const [mode, setMode] = useState('');
   const [inputText, setInputText] = useState('');
   const [approved, setApproved] = useState(false);
+  const [parsedTotal, setParsedTotal] = useState(ethers.BigNumber.from(0));
   const [txHash, setTxHash] = useState(null);
   const [previewTotal, setPreviewTotal] = useState('0');
   const [recipientCount, setRecipientCount] = useState(0);
@@ -97,6 +98,7 @@ export default function Home() {
     }
 
     const total = amounts.reduce((sum, val) => sum.add(val), ethers.BigNumber.from(0));
+    setParsedTotal(total); // <-- NEW
     setRecipientCount(recipients.length);
     setPreviewTotal(ethers.utils.formatUnits(total, 18));
     return { recipients, amounts, total };
@@ -106,8 +108,7 @@ export default function Home() {
     if (!walletAddress || !signer) return;
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const allowance = await token.allowance(walletAddress, CONTRACT_ADDRESS);
-    const { total } = parseInput();
-    setApproved(allowance.gte(total));
+    setApproved(allowance.gte(parsedTotal)); // <-- FIXED
   };
 
   const approveToken = async (tokenAddress) => {
@@ -167,7 +168,7 @@ export default function Home() {
     } else if (mode === 'custom' && customTokenAddress) {
       checkApproval(customTokenAddress);
     }
-  }, [walletAddress, signer, mode, inputText, customTokenAddress]);
+  }, [walletAddress, signer, mode, parsedTotal, customTokenAddress]);
 
   return (
     <div className={styles.fullPage}>
@@ -200,6 +201,7 @@ export default function Home() {
               setApproved(false);
               setTxHash(null);
               setInputText('');
+              setParsedTotal(ethers.BigNumber.from(0));
               setPreviewTotal('0');
               setRecipientCount(0);
               setCustomSymbol('');
