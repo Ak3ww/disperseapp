@@ -1,78 +1,61 @@
-.fullPage {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  background: #10141f;
-  color: white;
-  font-family: 'Segoe UI', sans-serif;
-  padding: 2rem;
-}
-
 .container {
-  width: 100%;
-  max-width: 500px;
-  background: #181c2f;
+  max-width: 640px;
+  margin: 40px auto;
+  padding: 20px;
+  font-family: 'Arial', sans-serif;
+  background: #0e141e;
+  color: #ffffff;
   border-radius: 12px;
-  padding: 2rem;
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 12px rgba(0, 255, 110, 0.1);
 }
 
-.title {
-  font-size: 1.5rem;
-  margin-bottom: 1.5rem;
+h1 {
+  font-size: 28px;
   text-align: center;
+  margin-bottom: 20px;
+  color: #32FF8F; /* AvocadoDAO green */
 }
 
-.select,
-.textarea {
+select, textarea, input {
   width: 100%;
-  padding: 0.75rem;
-  margin-top: 1rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 1rem;
-  background: #2a2f45;
-  color: white;
-  box-sizing: border-box;
+  padding: 12px;
+  margin-top: 10px;
+  margin-bottom: 15px;
+  border-radius: 8px;
+  border: 1px solid #32ff8f40;
+  background: #141b2b;
+  color: #ffffff;
+  font-size: 16px;
 }
 
-.textarea {
+textarea {
   resize: vertical;
-  height: 120px;
-  font-family: monospace;
+  height: 150px;
 }
 
-.connected {
-  font-size: 0.9rem;
-  margin: 0.5rem 0 1rem;
+img {
+  margin-top: 10px;
+  border-radius: 8px;
+  border: 1px solid #32ff8f30;
 }
 
-.disconnect {
-  margin-left: 1rem;
-  color: #f87171;
-  cursor: pointer;
-  font-weight: bold;
+button {
+  margin-top: 12px;
 }
 
-.preview {
-  margin-top: 0.75rem;
-  font-size: 0.95rem;
-  color: #a5f3fc;
-  background: #243043;
-  padding: 0.5rem;
-  border-radius: 6px;
-  text-align: center;
+p {
+  font-size: 14px;
+  color: #cccccc;
+  margin: 6px 0;
 }
 
-.txinfo {
-  margin-top: 1rem;
-  font-size: 0.95rem;
-  color: #bbf7d0;
-  text-align: center;
-}
+@media (max-width: 768px) {
+  .container {
+    margin: 20px;
+    padding: 16px;
+  }
 
-.txinfo a {
-  color: #5eead4;
-  text-decoration: underline;
+  h1 {
+    font-size: 22px;
+  }
 }
