@@ -113,22 +113,23 @@ export default function Home() {
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
-    setApproved(true);
+    await checkApproval(tokenAddress); // Recheck after approval
   };
 
   const revokeToken = async (tokenAddress) => {
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, 0);
     await tx.wait();
-    setApproved(false);
+    await checkApproval(tokenAddress); // Recheck after revoke
   };
 
   const sendDisperse = async () => {
     const { recipients, amounts, total } = parseInput();
     if (!recipients.length) return alert("Invalid input");
 
-    let tx;
     const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
+
+    let tx;
     if (mode === 'bnb') {
       tx = await contract.disperseBNB(recipients, amounts, { value: total });
     } else {
