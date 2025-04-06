@@ -25,11 +25,11 @@ export default function Home() {
   const [walletAddress, setWalletAddress] = useState('');
   const [mode, setMode] = useState('');
   const [inputText, setInputText] = useState('');
-  const [approved, setApproved] = useState(false);
   const [parsedTotal, setParsedTotal] = useState(ethers.BigNumber.from(0));
+  const [approved, setApproved] = useState(false);
   const [txHash, setTxHash] = useState(null);
-  const [previewTotal, setPreviewTotal] = useState('0');
   const [recipientCount, setRecipientCount] = useState(0);
+  const [previewTotal, setPreviewTotal] = useState('0');
 
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
@@ -60,9 +60,9 @@ export default function Home() {
       try {
         await window.ethereum.request({
           method: 'wallet_switchEthereumChain',
-          params: [{ chainId: BSC_MAINNET_CHAIN_ID }],
+          params: [{ chainId: BSC_MAINNET_CHAIN_ID }]
         });
-      } catch (error) {
+      } catch {
         alert("Please switch to BNB Chain in MetaMask.");
       }
     }
@@ -98,31 +98,35 @@ export default function Home() {
     }
 
     const total = amounts.reduce((sum, val) => sum.add(val), ethers.BigNumber.from(0));
-    setParsedTotal(total); // <-- NEW
+    setParsedTotal(total);
     setRecipientCount(recipients.length);
     setPreviewTotal(ethers.utils.formatUnits(total, 18));
     return { recipients, amounts, total };
   };
 
-  const checkApproval = async (tokenAddress) => {
-    if (!walletAddress || !signer) return;
+  const checkApproval = async (tokenAddress, total) => {
+    if (!walletAddress || !signer || total.isZero()) {
+      setApproved(false);
+      return;
+    }
+
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const allowance = await token.allowance(walletAddress, CONTRACT_ADDRESS);
-    setApproved(allowance.gte(parsedTotal)); // <-- FIXED
+    setApproved(allowance.gte(total));
   };
 
   const approveToken = async (tokenAddress) => {
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
-    await checkApproval(tokenAddress);
+    await checkApproval(tokenAddress, parsedTotal);
   };
 
   const revokeToken = async (tokenAddress) => {
     const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, 0);
     await tx.wait();
-    await checkApproval(tokenAddress);
+    await checkApproval(tokenAddress, parsedTotal);
   };
 
   const sendDisperse = async () => {
@@ -130,8 +134,8 @@ export default function Home() {
     if (!recipients.length) return alert("Invalid input");
 
     const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
-
     let tx;
+
     if (mode === 'bnb') {
       tx = await contract.disperseBNB(recipients, amounts, { value: total });
     } else {
@@ -152,23 +156,22 @@ export default function Home() {
 
       setCustomSymbol(symbol);
       setCustomBalance(ethers.utils.formatUnits(balance, decimals));
-      checkApproval(customTokenAddress);
-    } catch (err) {
-      alert("Failed to load token");
+    } catch {
+      alert("Failed to load token.");
     } finally {
       setLoadingCustom(false);
     }
   };
 
+  // 🔁 Re-check approval AFTER parsedTotal changes
   useEffect(() => {
-    if (!walletAddress || !signer) return;
+    if (!walletAddress || !signer || parsedTotal.isZero()) return;
 
-    if (mode === 'avg') {
-      checkApproval(AVG_TOKEN_ADDRESS);
-    } else if (mode === 'custom' && customTokenAddress) {
-      checkApproval(customTokenAddress);
+    const tokenAddr = mode === 'avg' ? AVG_TOKEN_ADDRESS : mode === 'custom' ? customTokenAddress : null;
+    if (tokenAddr) {
+      checkApproval(tokenAddr, parsedTotal);
     }
-  }, [walletAddress, signer, mode, parsedTotal, customTokenAddress]);
+  }, [parsedTotal, walletAddress, signer, mode, customTokenAddress]);
 
   return (
     <div className={styles.fullPage}>
@@ -178,14 +181,7 @@ export default function Home() {
       </Head>
 
       <div className={styles.container}>
-        <div className={styles.header}>
-          <img
-            src="https://www.avocadodao.io/favicon/apple-touch-icon.png"
-            alt="Avocado DAO Logo"
-            className={styles.logo}
-          />
-          <h1 className={styles.title}>Avocado Disperser</h1>
-        </div>
+        <h1 className={styles.title}>Avocado Disperser</h1>
 
         {!walletAddress ? (
           <Button onClick={connectWallet}>Connect Wallet</Button>
@@ -198,12 +194,12 @@ export default function Home() {
 
             <select className={styles.select} onChange={(e) => {
               setMode(e.target.value);
-              setApproved(false);
-              setTxHash(null);
               setInputText('');
               setParsedTotal(ethers.BigNumber.from(0));
-              setPreviewTotal('0');
+              setApproved(false);
+              setTxHash(null);
               setRecipientCount(0);
+              setPreviewTotal('0');
               setCustomSymbol('');
               setCustomBalance('');
             }}>
@@ -212,13 +208,6 @@ export default function Home() {
               <option value="avg">AVG</option>
               <option value="custom">Custom Token</option>
             </select>
-
-            {mode === 'bnb' && bnbBalance && (
-              <div className={styles.preview}>BNB Balance: {bnbBalance}</div>
-            )}
-            {mode === 'avg' && avgBalance && (
-              <div className={styles.preview}>AVG Balance: {avgBalance}</div>
-            )}
 
             {mode === 'custom' && (
               <>
@@ -229,8 +218,8 @@ export default function Home() {
                   placeholder="Paste Token Contract Address"
                 />
                 <Button onClick={loadCustomToken}>Load Token</Button>
-                {loadingCustom && <div className={styles.preview}>Loading token...</div>}
-                {!loadingCustom && customSymbol && (
+                {loadingCustom && <div className={styles.preview}>Loading...</div>}
+                {customSymbol && (
                   <div className={styles.preview}>
                     {customSymbol} Balance: {customBalance}
                   </div>
@@ -243,10 +232,7 @@ export default function Home() {
                 <textarea
                   className={styles.textarea}
                   value={inputText}
-                  onChange={(e) => {
-                    setInputText(e.target.value);
-                    parseInput();
-                  }}
+                  onChange={(e) => setInputText(e.target.value)}
                   placeholder="0xAddress, 1.23"
                 />
 
@@ -259,13 +245,13 @@ export default function Home() {
 
                 {(mode === 'avg' || mode === 'custom') && !approved && (
                   <Button onClick={() => approveToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
-                    Approve Token
+                    Approve
                   </Button>
                 )}
 
                 {(mode === 'avg' || mode === 'custom') && approved && (
                   <Button onClick={() => revokeToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
-                    Revoke Approval
+                    Revoke
                   </Button>
                 )}
 
