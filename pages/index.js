@@ -1,257 +1,280 @@
 import { useEffect, useState } from 'react';
+import Head from 'next/head';
 import Button from '../components/ui/button';
 import styles from '../styles/DisperseUI.module.css';
 import { ethers } from 'ethers';
 
 const CONTRACT_ADDRESS = '0x59b990c626853DC951A38EFC1dF50abb4d48Ca75';
 const AVG_TOKEN_ADDRESS = '0xa41F142b6eb2b164f8164CAE0716892Ce02f311f';
-const BSC_CHAIN_ID = '0x38';
+const BSC_MAINNET_CHAIN_ID = '0x38';
 
-const ABI = [
+const CONTRACT_ABI = [
   "function disperseBNB(address[] calldata recipients, uint256[] calldata amounts) external payable",
   "function disperseToken(address token, address[] calldata recipients, uint256[] calldata amounts) external"
 ];
 
-const ERC20_ABI = [
+const TOKEN_ABI = [
   "function approve(address spender, uint256 amount) public returns (bool)",
   "function allowance(address owner, address spender) external view returns (uint256)",
-  "function balanceOf(address account) external view returns (uint256)",
+  "function decimals() view returns (uint8)",
   "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)"
+  "function balanceOf(address owner) external view returns (uint256)"
 ];
 
 export default function Home() {
-  const [wallet, setWallet] = useState('');
-  const [provider, setProvider] = useState(null);
-  const [signer, setSigner] = useState(null);
-  const [contract, setContract] = useState(null);
+  const [walletAddress, setWalletAddress] = useState('');
   const [mode, setMode] = useState('');
-  const [input, setInput] = useState('');
+  const [inputText, setInputText] = useState('');
   const [approved, setApproved] = useState(false);
   const [txHash, setTxHash] = useState(null);
   const [previewTotal, setPreviewTotal] = useState('0');
   const [recipientCount, setRecipientCount] = useState(0);
-  const [customToken, setCustomToken] = useState('');
-  const [customSymbol, setCustomSymbol] = useState('');
-  const [customBalance, setCustomBalance] = useState('');
-  const [checking, setChecking] = useState(false);
+  const [tokenSymbol, setTokenSymbol] = useState('');
+  const [tokenAddress, setTokenAddress] = useState('');
+  const [tokenBalance, setTokenBalance] = useState('');
+  const [isLoadingToken, setIsLoadingToken] = useState(false);
 
-  const connect = async () => {
-    if (!window.ethereum) return alert("Install MetaMask");
+  const [provider, setProvider] = useState(null);
+  const [signer, setSigner] = useState(null);
+  const [contract, setContract] = useState(null);
+
+  const connectWallet = async () => {
+    if (!window.ethereum) return alert("Please install MetaMask");
+
     const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
     await web3Provider.send("eth_requestAccounts", []);
     const signer = web3Provider.getSigner();
     const address = await signer.getAddress();
-    setWallet(address);
-    setSigner(signer);
+    setWalletAddress(address);
     setProvider(web3Provider);
-    setContract(new ethers.Contract(CONTRACT_ADDRESS, ABI, signer));
+    setSigner(signer);
+    setContract(new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer));
 
     const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-    if (chainId !== BSC_CHAIN_ID) {
+    if (chainId !== BSC_MAINNET_CHAIN_ID) {
       try {
         await window.ethereum.request({
           method: 'wallet_switchEthereumChain',
-          params: [{ chainId: BSC_CHAIN_ID }]
+          params: [{ chainId: BSC_MAINNET_CHAIN_ID }]
         });
-      } catch (e) {
-        alert("Please switch to BNB Chain in MetaMask");
+      } catch {
+        alert("Please switch to BNB Chain manually.");
       }
     }
   };
 
-  const disconnect = () => {
-    setWallet('');
+  const disconnectWallet = () => {
+    setWalletAddress('');
     setSigner(null);
     setProvider(null);
     setContract(null);
   };
 
   const parseInput = () => {
-    const lines = input.trim().split('\n');
+    const lines = inputText.trim().split('\n');
     const recipients = [];
     const amounts = [];
 
-    for (let line of lines) {
-      const [addr, amt] = line.split(/[,= ]+/);
-      if (ethers.utils.isAddress(addr) && !isNaN(parseFloat(amt))) {
-        recipients.push(addr);
-        amounts.push(ethers.utils.parseUnits(amt.trim(), 18));
+    for (const line of lines) {
+      const [address, amount] = line.split(/[, =]+/);
+      if (ethers.utils.isAddress(address) && !isNaN(parseFloat(amount))) {
+        recipients.push(address);
+        amounts.push(ethers.utils.parseUnits(amount.trim(), 18));
       }
     }
 
     setRecipientCount(recipients.length);
-    const total = amounts.reduce((acc, n) => acc.add(n), ethers.BigNumber.from(0));
+    const total = amounts.reduce((sum, val) => sum.add(val), ethers.BigNumber.from(0));
     setPreviewTotal(ethers.utils.formatUnits(total, 18));
     return { recipients, amounts, total };
   };
 
   const checkApproval = async () => {
-    if (!signer || !wallet || !contract) return;
-    const tokenAddr = mode === 'avg' ? AVG_TOKEN_ADDRESS : customToken;
-    const token = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
-    const allowance = await token.allowance(wallet, CONTRACT_ADDRESS);
+    if (!walletAddress || !signer || !tokenAddress) return;
+    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
+    const allowance = await token.allowance(walletAddress, CONTRACT_ADDRESS);
     setApproved(allowance.gt(0));
   };
 
-  const checkBalance = async () => {
-    if (!signer || !wallet) return;
+  const fetchBalance = async () => {
+    if (!walletAddress || !signer) return;
     if (mode === 'bnb') {
-      const balance = await provider.getBalance(wallet);
-      setCustomBalance(ethers.utils.formatEther(balance));
-    } else {
-      const tokenAddr = mode === 'avg' ? AVG_TOKEN_ADDRESS : customToken;
-      const token = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
-      const balance = await token.balanceOf(wallet);
+      const bal = await provider.getBalance(walletAddress);
+      setTokenSymbol('BNB');
+      setTokenBalance(ethers.utils.formatEther(bal));
+    } else if (tokenAddress) {
+      const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
+      const bal = await token.balanceOf(walletAddress);
+      const decimals = await token.decimals();
       const symbol = await token.symbol();
-      setCustomBalance(ethers.utils.formatUnits(balance, 18));
-      setCustomSymbol(symbol);
+      setTokenSymbol(symbol);
+      setTokenBalance(ethers.utils.formatUnits(bal, decimals));
     }
   };
 
   const loadCustomToken = async () => {
+    if (!signer || !tokenAddress) return;
+    setIsLoadingToken(true);
     try {
-      setChecking(true);
-      const token = new ethers.Contract(customToken, ERC20_ABI, signer);
-      const sym = await token.symbol();
-      const bal = await token.balanceOf(wallet);
-      setCustomSymbol(sym);
-      setCustomBalance(ethers.utils.formatUnits(bal, 18));
+      const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
+      const symbol = await token.symbol();
+      setTokenSymbol(symbol);
+      await fetchBalance();
       await checkApproval();
-    } catch (err) {
-      alert("Invalid token contract");
-      setCustomSymbol('');
-      setCustomBalance('');
-    } finally {
-      setChecking(false);
+    } catch {
+      alert("Invalid token contract.");
+      setTokenSymbol('');
     }
+    setIsLoadingToken(false);
   };
 
-  const approve = async () => {
+  const approveToken = async () => {
     const { total } = parseInput();
-    const tokenAddr = mode === 'avg' ? AVG_TOKEN_ADDRESS : customToken;
-    const token = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
+    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
-    await checkApproval();
+    checkApproval();
   };
 
-  const revoke = async () => {
-    const tokenAddr = mode === 'avg' ? AVG_TOKEN_ADDRESS : customToken;
-    const token = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
+  const revokeToken = async () => {
+    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, 0);
     await tx.wait();
-    await checkApproval();
+    checkApproval();
   };
 
-  const send = async () => {
+  const sendDisperse = async () => {
     const { recipients, amounts, total } = parseInput();
-    if (!recipients.length) return alert("No valid inputs");
+    if (!recipients.length) return alert("Invalid input");
     let tx;
     if (mode === 'bnb') {
       tx = await contract.disperseBNB(recipients, amounts, { value: total });
     } else {
-      const tokenAddr = mode === 'avg' ? AVG_TOKEN_ADDRESS : customToken;
-      tx = await contract.disperseToken(tokenAddr, recipients, amounts);
+      tx = await contract.disperseToken(tokenAddress, recipients, amounts);
     }
     await tx.wait();
     setTxHash(tx.hash);
+    checkApproval();
   };
 
   useEffect(() => {
-    if (wallet && mode) {
-      checkBalance();
-      checkApproval();
-    }
-  }, [wallet, mode, input, customToken]);
+    if (walletAddress) fetchBalance();
+  }, [walletAddress, mode, tokenAddress]);
+
+  useEffect(() => {
+    if (mode && walletAddress && inputText) parseInput();
+  }, [inputText]);
 
   return (
     <div className={styles.fullPage}>
+      <Head>
+        <title>Avocado Disperser</title>
+        <link rel="icon" href="https://www.avocadodao.io/favicon/favicon.ico" />
+      </Head>
       <div className={styles.container}>
-        <div className={styles.header}>
-          <img className={styles.logo} src="https://www.avocadodao.io/favicon/apple-touch-icon.png" alt="logo" />
-          <h1 className={styles.title}>Avocado Disperser</h1>
-        </div>
+        <img
+          src="https://www.avocadodao.io/favicon/apple-touch-icon.png"
+          alt="Avocado Logo"
+          style={{ width: '160px', display: 'block', margin: '0 auto 1rem' }}
+        />
+        <h1 className={styles.title}>Avocado Disperser</h1>
 
-        {!wallet ? (
-          <Button onClick={connect}>Connect Wallet</Button>
+        {!walletAddress ? (
+          <Button onClick={connectWallet}>Connect Wallet</Button>
         ) : (
           <>
             <div className={styles.connected}>
-              Connected: {wallet.slice(0, 6)}...{wallet.slice(-4)}
-              <span className={styles.disconnect} onClick={disconnect}>Disconnect</span>
+              Connected: {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+              <span className={styles.disconnect} onClick={disconnectWallet}>Disconnect</span>
             </div>
 
-            <div className={styles.tooltipWrapper}>
-              <label className={styles.tooltipLabel}>
-                Select Token
-                <span className={styles.tooltip}>
-                  Choose between BNB, AVG, or a custom token (paste address below).
-                </span>
-              </label>
-              <select className={styles.select} value={mode} onChange={(e) => {
-                setMode(e.target.value);
-                setCustomSymbol('');
-                setTxHash(null);
-                setApproved(false);
-              }}>
-                <option value="">Select</option>
-                <option value="bnb">BNB</option>
-                <option value="avg">AVG</option>
-                <option value="custom">Custom Token</option>
-              </select>
-            </div>
+            <select className={styles.select} onChange={(e) => {
+              const value = e.target.value;
+              setMode(value);
+              setInputText('');
+              setPreviewTotal('0');
+              setRecipientCount(0);
+              setApproved(false);
+              setTokenBalance('');
+              setTokenSymbol('');
+              setTokenAddress(value === 'avg' ? AVG_TOKEN_ADDRESS : '');
+              if (value === 'bnb') {
+                setTokenSymbol('BNB');
+              }
+            }}>
+              <option value="">Select Token</option>
+              <option value="bnb">BNB</option>
+              <option value="avg">$AVG</option>
+              <option value="custom">Custom Token</option>
+            </select>
 
             {mode === 'custom' && (
-              <div className={styles.tooltipWrapper}>
-                <label className={styles.tooltipLabel}>
-                  Paste Token Address
-                  <span className={styles.tooltip}>
-                    Enter the token contract address on BSC.
-                  </span>
-                </label>
-                <input className={styles.select} value={customToken} onChange={e => setCustomToken(e.target.value)} placeholder="0x..." />
-                <Button onClick={loadCustomToken} disabled={checking}>{checking ? 'Loading...' : 'Load Token'}</Button>
-              </div>
+              <>
+                <input
+                  className={styles.select}
+                  placeholder="Paste token contract address"
+                  onChange={(e) => setTokenAddress(e.target.value)}
+                />
+                <Button onClick={loadCustomToken}>
+                  {isLoadingToken ? 'Loading...' : 'Load Token'}
+                </Button>
+              </>
             )}
 
-            {customSymbol && (
-              <div className={styles.preview}>Balance: {customBalance} {customSymbol}</div>
-            )}
-
-            <div className={styles.tooltipWrapper}>
-              <label className={styles.tooltipLabel}>
-                Recipients & Amounts
-                <span className={styles.tooltip}>
-                  One address per line. Format supported: comma, space or equal sign. e.g.:
-                  <br />
-                  0xabc..., 1.23<br />
-                  0xabc... 1.23<br />
-                  0xabc... = 1.23
-                </span>
-              </label>
-              <textarea
-                className={styles.textarea}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                placeholder="0xabc..., 1.23\n0xabc... = 2.5"
-              />
-            </div>
-
-            {(recipientCount > 0 || previewTotal !== '0') && (
+            {tokenBalance && tokenSymbol && (
               <div className={styles.preview}>
-                Total Recipients: {recipientCount} | Total: {previewTotal} {customSymbol || mode.toUpperCase()}
+                Balance: {tokenBalance} {tokenSymbol}
               </div>
             )}
 
-            {mode !== 'bnb' && !approved && <Button onClick={approve}>Approve</Button>}
-            {mode !== 'bnb' && approved && <Button onClick={revoke}>Revoke</Button>}
-            {(mode === 'bnb' || approved) && <Button onClick={send}>Send</Button>}
+            {mode && (
+              <>
+                <div className={styles.tooltipWrapper}>
+                  <label className={styles.tooltipLabel}>
+                    recipients and amounts
+                    <span className={styles.tooltip}>
+                      Enter one address and amount in BNB or token per line. Supports comma, space, or equals sign.
+                      <br /><br />
+                      <code>0xabc..., 1.23</code><br />
+                      <code>0xabc... 1.23</code><br />
+                      <code>0xabc... = 1.23</code>
+                    </span>
+                  </label>
+                  <textarea
+                    className={styles.textarea}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    placeholder={`0xabc..., 1.23\n0xabc... 1.23\n0xabc... = 1.23`}
+                  />
+                </div>
 
-            {txHash && (
-              <div className={styles.txinfo}>
-                ✅ <a href={`https://bscscan.com/tx/${txHash}`} target="_blank" rel="noreferrer">Tx Hash</a>
-              </div>
+                {previewTotal !== '0' && (
+                  <div className={styles.preview}>
+                    Total: {previewTotal} {tokenSymbol} | Recipients: {recipientCount}
+                  </div>
+                )}
+
+                {tokenAddress && mode !== 'bnb' && !approved && (
+                  <Button onClick={approveToken}>Approve</Button>
+                )}
+
+                {tokenAddress && mode !== 'bnb' && approved && (
+                  <>
+                    <Button onClick={revokeToken}>Revoke</Button>
+                    <Button onClick={sendDisperse}>Send</Button>
+                  </>
+                )}
+
+                {mode === 'bnb' && (
+                  <Button onClick={sendDisperse}>Send</Button>
+                )}
+
+                {txHash && (
+                  <div className={styles.txinfo}>
+                    ✅ Success: <a href={`https://bscscan.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer">{txHash.slice(0, 10)}...</a>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
