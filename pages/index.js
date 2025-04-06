@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Button from '../components/ui/button';
 import styles from '../styles/DisperseUI.module.css';
 import { ethers } from 'ethers';
+import Head from 'next/head';
 
 const CONTRACT_ADDRESS = '0x59b990c626853DC951A38EFC1dF50abb4d48Ca75';
 const AVG_TOKEN_ADDRESS = '0xa41F142b6eb2b164f8164CAE0716892Ce02f311f';
@@ -17,7 +18,7 @@ const TOKEN_ABI = [
   "function allowance(address owner, address spender) external view returns (uint256)",
   "function decimals() view returns (uint8)",
   "function symbol() view returns (string)",
-  "function balanceOf(address) view returns (uint256)"
+  "function balanceOf(address account) external view returns (uint256)"
 ];
 
 export default function Home() {
@@ -32,11 +33,9 @@ export default function Home() {
   const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
 
-  const [customToken, setCustomToken] = useState('');
+  const [customTokenAddress, setCustomTokenAddress] = useState('');
   const [customSymbol, setCustomSymbol] = useState('');
-  const [customDecimals, setCustomDecimals] = useState(18);
   const [customBalance, setCustomBalance] = useState('');
-  const [customLogo, setCustomLogo] = useState('');
 
   const connectWallet = async () => {
     if (!window.ethereum) return alert("Please install MetaMask");
@@ -59,20 +58,7 @@ export default function Home() {
           params: [{ chainId: BSC_MAINNET_CHAIN_ID }],
         });
       } catch (error) {
-        if (error.code === 4902) {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: BSC_MAINNET_CHAIN_ID,
-              chainName: 'BNB Chain',
-              nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-              rpcUrls: ['https://bsc-dataseed.binance.org/'],
-              blockExplorerUrls: ['https://bscscan.com']
-            }]
-          });
-        } else {
-          alert("Please switch to BNB Chain manually in MetaMask.");
-        }
+        alert("Please switch to BNB Chain in MetaMask.");
       }
     }
   };
@@ -82,9 +68,6 @@ export default function Home() {
     setSigner(null);
     setProvider(null);
     setContract(null);
-    setCustomToken('');
-    setCustomSymbol('');
-    setCustomBalance('');
     setApproved(false);
   };
 
@@ -97,39 +80,32 @@ export default function Home() {
       const [address, amount] = line.split(/[, ]+/);
       if (ethers.utils.isAddress(address) && !isNaN(parseFloat(amount))) {
         recipients.push(address);
-        amounts.push(ethers.utils.parseUnits(amount.trim(), customDecimals));
+        amounts.push(ethers.utils.parseUnits(amount.trim(), 18));
       }
     }
 
     const total = amounts.reduce((sum, val) => sum.add(val), ethers.BigNumber.from(0));
-    setPreviewTotal(ethers.utils.formatUnits(total, customDecimals));
+    setPreviewTotal(ethers.utils.formatUnits(total, 18));
     return { recipients, amounts, total };
   };
 
-  const loadTokenDetails = async (address) => {
-    if (!ethers.utils.isAddress(address)) return;
-    const token = new ethers.Contract(address, TOKEN_ABI, signer);
-    const decimals = await token.decimals();
-    const symbol = await token.symbol();
-    const balance = await token.balanceOf(walletAddress);
-    setCustomDecimals(decimals);
-    setCustomSymbol(symbol);
-    setCustomBalance(ethers.utils.formatUnits(balance, decimals));
-    setCustomLogo(`https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/assets/${address}/logo.png`);
+  const checkApproval = async (tokenAddress) => {
+    if (!walletAddress || !signer) return;
+    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const allowance = await token.allowance(walletAddress, CONTRACT_ADDRESS);
     setApproved(allowance.gt(0));
   };
 
-  const approveToken = async () => {
+  const approveToken = async (tokenAddress) => {
     const { total } = parseInput();
-    const token = new ethers.Contract(customToken, TOKEN_ABI, signer);
+    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
     await tx.wait();
     setApproved(true);
   };
 
-  const revokeToken = async () => {
-    const token = new ethers.Contract(customToken, TOKEN_ABI, signer);
+  const revokeToken = async (tokenAddress) => {
+    const token = new ethers.Contract(tokenAddress, TOKEN_ABI, signer);
     const tx = await token.approve(CONTRACT_ADDRESS, 0);
     await tx.wait();
     setApproved(false);
@@ -138,31 +114,54 @@ export default function Home() {
   const sendDisperse = async () => {
     const { recipients, amounts, total } = parseInput();
     if (!recipients.length) return alert("Invalid input");
+
     let tx;
     if (mode === 'bnb') {
       tx = await contract.disperseBNB(recipients, amounts, { value: total });
     } else {
-      tx = await contract.disperseToken(
-        mode === 'avg' ? AVG_TOKEN_ADDRESS : customToken,
-        recipients,
-        amounts
-      );
+      const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress;
+      tx = await contract.disperseToken(tokenAddress, recipients, amounts);
     }
+
     await tx.wait();
     setTxHash(tx.hash);
   };
 
-  useEffect(() => {
-    if ((mode === 'avg' || mode === 'custom') && walletAddress) {
-      const tokenAddress = mode === 'avg' ? AVG_TOKEN_ADDRESS : customToken;
-      if (tokenAddress) loadTokenDetails(tokenAddress);
+  const loadCustomToken = async () => {
+    try {
+      const token = new ethers.Contract(customTokenAddress, TOKEN_ABI, signer);
+      const symbol = await token.symbol();
+      const balance = await token.balanceOf(walletAddress);
+      const decimals = await token.decimals();
+
+      setCustomSymbol(symbol);
+      setCustomBalance(ethers.utils.formatUnits(balance, decimals));
+      checkApproval(customTokenAddress);
+    } catch (err) {
+      alert("Failed to load token");
     }
-  }, [mode, customToken, walletAddress, inputText]);
+  };
+
+  useEffect(() => {
+    if (mode === 'avg') checkApproval(AVG_TOKEN_ADDRESS);
+  }, [walletAddress, mode, inputText]);
 
   return (
     <div className={styles.fullPage}>
+      <Head>
+        <title>Avocado Disperser</title>
+        <link rel="icon" href="https://www.avocadodao.io/favicon/favicon.ico" />
+      </Head>
+
       <div className={styles.container}>
-        <h1 className={styles.title}>BNB / $AVG / Custom Disperse</h1>
+        <div className={styles.header}>
+          <img
+            src="https://www.avocadodao.io/favicon/apple-touch-icon.png"
+            alt="Avocado DAO Logo"
+            className={styles.logo}
+          />
+          <h1 className={styles.title}>Avocado Disperser</h1>
+        </div>
 
         {!walletAddress ? (
           <Button onClick={connectWallet}>Connect Wallet</Button>
@@ -176,10 +175,9 @@ export default function Home() {
             <select className={styles.select} onChange={(e) => {
               setMode(e.target.value);
               setApproved(false);
+              setTxHash(null);
               setInputText('');
               setPreviewTotal('0');
-              setTxHash(null);
-              setCustomToken('');
               setCustomSymbol('');
               setCustomBalance('');
             }}>
@@ -190,25 +188,24 @@ export default function Home() {
             </select>
 
             {mode === 'custom' && (
-              <input
-                className={styles.select}
-                placeholder="Paste token contract address"
-                value={customToken}
-                onChange={(e) => setCustomToken(e.target.value.trim())}
-              />
+              <>
+                <input
+                  className={styles.select}
+                  value={customTokenAddress}
+                  onChange={(e) => setCustomTokenAddress(e.target.value)}
+                  placeholder="Paste Token Contract"
+                />
+                <Button onClick={loadCustomToken}>Load Token</Button>
+                {customSymbol && (
+                  <div className={styles.preview}>
+                    {customSymbol} Balance: {customBalance}
+                  </div>
+                )}
+              </>
             )}
 
             {mode && (
               <>
-                {customSymbol && (
-                  <div className={styles.preview}>
-                    {customLogo && (
-                      <img src={customLogo} alt="" width={18} height={18} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-                    )}
-                    {customSymbol} Balance: {customBalance}
-                  </div>
-                )}
-
                 <textarea
                   className={styles.textarea}
                   value={inputText}
@@ -217,21 +214,24 @@ export default function Home() {
                     parseInput();
                   }}
                   placeholder="0xAddress, 1.23"
-                  rows={8}
                 />
 
                 {previewTotal !== '0' && (
                   <div className={styles.preview}>
-                    Estimated Total: {previewTotal} {mode === 'bnb' ? 'BNB' : customSymbol || 'Token'}
+                    Total: {previewTotal}
                   </div>
                 )}
 
                 {(mode === 'avg' || mode === 'custom') && !approved && (
-                  <Button onClick={approveToken}>Approve Token</Button>
+                  <Button onClick={() => approveToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
+                    Approve Token
+                  </Button>
                 )}
 
                 {(mode === 'avg' || mode === 'custom') && approved && (
-                  <Button onClick={revokeToken}>Revoke</Button>
+                  <Button onClick={() => revokeToken(mode === 'avg' ? AVG_TOKEN_ADDRESS : customTokenAddress)}>
+                    Revoke Approval
+                  </Button>
                 )}
 
                 {(mode === 'bnb' || approved) && (
@@ -240,7 +240,7 @@ export default function Home() {
 
                 {txHash && (
                   <div className={styles.txinfo}>
-                    ✅ Success: <a href={`https://bscscan.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer">{txHash.slice(0, 10)}...</a>
+                    ✅ Success: <a href={`https://bscscan.com/tx/${txHash}`} target="_blank" rel="noreferrer">{txHash.slice(0, 10)}...</a>
                   </div>
                 )}
               </>
