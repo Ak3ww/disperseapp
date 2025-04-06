@@ -40,7 +40,6 @@ export default function Home() {
 
   const connectWallet = async () => {
     if (!window.ethereum) return alert("Please install MetaMask");
-
     const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
     await web3Provider.send("eth_requestAccounts", []);
     const signer = web3Provider.getSigner();
@@ -188,33 +187,49 @@ export default function Home() {
               <span className={styles.disconnect} onClick={disconnectWallet}>Disconnect</span>
             </div>
 
-            <select className={styles.select} onChange={(e) => {
-              const value = e.target.value;
-              setMode(value);
-              setInputText('');
-              setPreviewTotal('0');
-              setRecipientCount(0);
-              setApproved(false);
-              setTokenBalance('');
-              setTokenSymbol('');
-              setTokenAddress(value === 'avg' ? AVG_TOKEN_ADDRESS : '');
-              if (value === 'bnb') {
-                setTokenSymbol('BNB');
-              }
-            }}>
-              <option value="">Select Token</option>
-              <option value="bnb">BNB</option>
-              <option value="avg">$AVG</option>
-              <option value="custom">Custom Token</option>
-            </select>
+            <div className={styles.tooltipWrapper}>
+              <label className={styles.tooltipLabel}>
+                Select Token
+                <span className={styles.tooltip}>
+                  Choose a token to send. BNB is native. AVG is your in-house token. Custom lets you paste a contract.
+                </span>
+              </label>
+              <select className={styles.select} onChange={(e) => {
+                const value = e.target.value;
+                setMode(value);
+                setInputText('');
+                setPreviewTotal('0');
+                setRecipientCount(0);
+                setApproved(false);
+                setTokenBalance('');
+                setTokenSymbol('');
+                setTokenAddress(value === 'avg' ? AVG_TOKEN_ADDRESS : '');
+                if (value === 'bnb') {
+                  setTokenSymbol('BNB');
+                }
+              }}>
+                <option value="">Select Token</option>
+                <option value="bnb">BNB</option>
+                <option value="avg">$AVG</option>
+                <option value="custom">Custom Token</option>
+              </select>
+            </div>
 
             {mode === 'custom' && (
               <>
-                <input
-                  className={styles.select}
-                  placeholder="Paste token contract address"
-                  onChange={(e) => setTokenAddress(e.target.value)}
-                />
+                <div className={styles.tooltipWrapper}>
+                  <label className={styles.tooltipLabel}>
+                    Token Contract Address
+                    <span className={styles.tooltip}>
+                      Paste a valid BSC contract address to load your custom token.
+                    </span>
+                  </label>
+                  <input
+                    className={styles.select}
+                    placeholder="Paste token contract address"
+                    onChange={(e) => setTokenAddress(e.target.value)}
+                  />
+                </div>
                 <Button onClick={loadCustomToken}>
                   {isLoadingToken ? 'Loading...' : 'Load Token'}
                 </Button>
@@ -255,18 +270,30 @@ export default function Home() {
                 )}
 
                 {tokenAddress && mode !== 'bnb' && !approved && (
-                  <Button onClick={approveToken}>Approve</Button>
+                  <div className={styles.tooltipWrapper}>
+                    <Button onClick={approveToken}>Approve</Button>
+                    <div className={styles.tooltip}>Approve token for sending. Required before dispersing.</div>
+                  </div>
                 )}
 
                 {tokenAddress && mode !== 'bnb' && approved && (
                   <>
-                    <Button onClick={revokeToken}>Revoke</Button>
-                    <Button onClick={sendDisperse}>Send</Button>
+                    <div className={styles.tooltipWrapper}>
+                      <Button onClick={revokeToken}>Revoke</Button>
+                      <div className={styles.tooltip}>Remove token approval.</div>
+                    </div>
+                    <div className={styles.tooltipWrapper}>
+                      <Button onClick={sendDisperse}>Send</Button>
+                      <div className={styles.tooltip}>Send selected token to all listed recipients.</div>
+                    </div>
                   </>
                 )}
 
                 {mode === 'bnb' && (
-                  <Button onClick={sendDisperse}>Send</Button>
+                  <div className={styles.tooltipWrapper}>
+                    <Button onClick={sendDisperse}>Send</Button>
+                    <div className={styles.tooltip}>Send BNB to all recipients.</div>
+                  </div>
                 )}
 
                 {txHash && (
